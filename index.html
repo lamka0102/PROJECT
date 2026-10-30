@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Kontrol Robot ESP32</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --card-border: #30363d;
+    --btn: #21262d;
+    --btn-active: #1f6feb;
+    --text: #f0f6fc;
+    --muted: #8b949e;
+    --danger: #da3633;
+    --ok: #238636;
+    --btn-size: clamp(60px, 14vmin, 90px);
+  }
+  
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { 
+    margin: 0; 
+    height: 100%; 
+    background: var(--bg); 
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; 
+    overflow: hidden;
+  }
+  body { user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none; }
+
+  /* Lock Portrait Notice */
+  .portrait-warning {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 999;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    color: var(--muted);
+  }
+  .portrait-warning svg { width: 48px; height: 48px; fill: currentColor; margin-bottom: 12px; }
+  .portrait-warning h2 { color: var(--text); margin: 0 0 8px 0; font-size: 18px; }
+
+  @media (orientation: landscape) {
+    .portrait-warning { display: none; }
+  }
+
+  /* Main Layout */
+  .app {
+    height: 100dvh;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas: "left panel right";
+    gap: 12px;
+    padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+             max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    align-items: center;
+  }
+
+  /* Compact Status Panel (Center Area) */
+  .panel {
+    grid-area: panel;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 16px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 96dvh;
+    overflow-y: auto;
+    touch-action: pan-y;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--card-border);
+    padding-bottom: 6px;
+  }
+  h1 { font-size: 14px; margin: 0; font-weight: 600; letter-spacing: 0.5px; }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    font-size: 11px;
+    color: var(--muted);
+    gap: 6px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+  /* Compact Grid for Telemetry & Controls */
+  .panel-body {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .distance-box {
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    padding: 8px;
+    text-align: center;
+    border: 1px solid var(--card-border);
+  }
+  .jarak { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .label { color: var(--muted); font-size: 10px; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.5px; }
+
+  .controls-box {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .slider-row label { width: 68px; flex-shrink: 0; }
+  .slider-row input { flex: 1; accent-color: var(--btn-active); height: 20px; touch-action: pan-y; }
+  .slider-row span { width: 32px; text-align: right; color: var(--text); font-weight: 600; font-size: 11px; }
+
+  /* Obstacle Alert Chip */
+  .banner {
+    display: none;
+    background: rgba(218, 54, 51, 0.2);
+    border: 1px solid var(--danger);
+    color: #ff7b72;
+    border-radius: 8px;
+    padding: 6px 10px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .banner.show { display: block; animation: blink 0.8s infinite; }
+  @keyframes blink { 50% { opacity: 0.5; } }
+
+  /* Joystick / Steering Buttons Layout */
+  .cluster {
+    display: grid;
+    gap: 8px;
+  }
+  
+  .left {
+    grid-area: left;
+    grid-template-columns: var(--btn-size) var(--btn-size);
+  }
+
+  .right {
+    grid-area: right;
+    grid-template-rows: var(--btn-size) var(--btn-size);
+  }
+
+  .btn {
+    width: var(--btn-size); 
+    height: var(--btn-size);
+    border: 1px solid var(--card-border); 
+    border-radius: 16px; 
+    background: var(--btn); 
+    color: var(--text);
+    font-size: calc(var(--btn-size) * 0.35); 
+    line-height: 1;
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center; 
+    gap: 2px;
+    cursor: pointer; 
+    touch-action: none; 
+    transition: transform 0.05s, background 0.05s;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  }
+  .btn small { font-size: 9px; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; }
+  .btn.on { background: var(--btn-active); border-color: #58a6ff; transform: scale(0.95); }
+  .btn.on small { color: #fff; }
+  .btn.blocked { opacity: 0.45; background: #4a2a2d; border-color: var(--danger); }
+  .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<!-- Peringatan jika layar dalam mode portrait -->
+<div class="portrait-warning">
+  <svg viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>
+  <h2>Putar Perangkat Anda</h2>
+  <div>Aplikasi ini dirancang khusus untuk posisi Landscape.</div>
+</div>
+
+<div class="app">
+
+  <!-- KIRI: Belok Kiri & Kanan -->
+  <div class="cluster left">
+    <button class="btn" data-cmd="L" aria-label="Belok kiri" disabled>◀<small>KIRI</small></button>
+    <button class="btn" data-cmd="R" aria-label="Belok kanan" disabled>▶<small>KANAN</small></button>
+  </div>
+
+  <!-- TENGAH: Panel Status Ringkas -->
+  <div class="panel">
+    <div class="panel-header">
+      <h1>ROBOT ESP32</h1>
+      <div class="status-badge">
+        <span class="dot" id="dot"></span>
+        <span id="koneksi">Menghubungkan…</span>
+      </div>
+    </div>
+
+    <div class="banner" id="banner">⚠ ADA RINTANGAN DI DEPAN</div>
+
+    <div class="panel-body">
+      <!-- Info Jarak -->
+      <div class="distance-box">
+        <div class="jarak" id="jarak">--</div>
+        <div class="label">Jarak (cm)</div>
+      </div>
+
+      <!-- Slider Pengaturan -->
+      <div class="controls-box">
+        <div class="slider-row">
+          <label for="speed">Kecepatan</label>
+          <input type="range" id="speed" min="0" max="255" value="150">
+          <span id="speedVal">150</span>
+        </div>
+        <div class="slider-row">
+          <label for="servo1">Servo 1</label>
+          <input type="range" id="servo1" min="0" max="180" value="90">
+          <span id="servo1Val">90°</span>
+        </div>
+        <div class="slider-row">
+          <label for="servo2">Servo 2</label>
+          <input type="range" id="servo2" min="0" max="180" value="90">
+          <span id="servo2Val">90°</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KANAN: Maju & Mundur -->
+  <div class="cluster right">
+    <button class="btn" data-cmd="F" id="btnMaju" aria-label="Maju" disabled>▲<small>MAJU</small></button>
+    <button class="btn" data-cmd="B" aria-label="Mundur" disabled>▼<small>MUNDUR</small></button>
+  </div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDp-YRfFcPhXTVNLtP_BM4N4O08PY8TAdA",
+  authDomain: "robot-controller-01.firebaseapp.com",
+  databaseURL: "https://ISI_PROJECT-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "robot-controller-01.firebaseapp.com",
+  appId: "1:907976986608:web:7123de1f9f4609caf85735"
+};
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getDatabase(app);
+
+const $ = id => document.getElementById(id);
+const buttons = [...document.querySelectorAll(".btn")];
+let ready = false;
+
+// ---------- Kirim perintah ----------
+const held = [];
+let lastSent = null;
+
+function kirimCmd(c) {
+  if (c === lastSent) return;
+  lastSent = c;
+  set(ref(db, "robot/control/cmd"), c).catch(console.error);
+}
+function perbarui() {
+  kirimCmd(held.length ? held[held.length - 1] : "S");
+}
+function tekan(c) {
+  if (!ready) return;
+  if (!held.includes(c)) held.push(c);
+  perbarui();
+}
+function lepas(c) {
+  const i = held.indexOf(c);
+  if (i > -1) held.splice(i, 1);
+  perbarui();
+}
+function stopSemua() { held.length = 0; buttons.forEach(b => b.classList.remove("on")); perbarui(); }
+
+// ---------- Tombol layar ----------
+buttons.forEach(b => {
+  const c = b.dataset.cmd;
+  b.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    b.setPointerCapture(e.pointerId);
+    b.classList.add("on");
+    tekan(c);
+  });
+  const up = () => { b.classList.remove("on"); lepas(c); };
+  b.addEventListener("pointerup", up);
+  b.addEventListener("pointercancel", up);
+  b.addEventListener("contextmenu", e => e.preventDefault());
+});
+
+// ---------- Keyboard ----------
+const keyMap = { ArrowUp: "F", w: "F", ArrowDown: "B", s: "B", ArrowLeft: "L", a: "L", ArrowRight: "R", d: "R" };
+addEventListener("keydown", e => {
+  const c = keyMap[e.key]; if (!c || e.repeat) return;
+  e.preventDefault();
+  const el = document.querySelector(`[data-cmd="${c}"]`);
+  if (el) el.classList.add("on");
+  tekan(c);
+});
+addEventListener("keyup", e => {
+  const c = keyMap[e.key]; if (!c) return;
+  const el = document.querySelector(`[data-cmd="${c}"]`);
+  if (el) el.classList.remove("on");
+  lepas(c);
+});
+
+// ---------- Failsafe ----------
+document.addEventListener("visibilitychange", () => { if (document.hidden) stopSemua(); });
+addEventListener("blur", stopSemua);
+addEventListener("pagehide", stopSemua);
+
+// ---------- Slider ----------
+function pasangSlider(id, path, isDegree = false) {
+  const el = $(id), out = $(id + "Val");
+  let t = 0;
+  el.addEventListener("input", () => {
+    out.textContent = el.value + (isDegree ? "°" : "");
+    const now = Date.now();
+    if (now - t > 100 && ready) { t = now; set(ref(db, path), Number(el.value)); }
+  });
+  el.addEventListener("change", () => { if (ready) set(ref(db, path), Number(el.value)); });
+}
+pasangSlider("speed",  "robot/control/speed");
+pasangSlider("servo1", "robot/control/servo1", true);
+pasangSlider("servo2", "robot/control/servo2", true);
+
+// ---------- Firebase Realtime Status ----------
+onValue(ref(db, "robot/status/obstacle"), s => {
+  const ada = s.val() === true;
+  $("banner").classList.toggle("show", ada);
+  $("btnMaju").classList.toggle("blocked", ada);
+  if (ada && navigator.vibrate) navigator.vibrate(200);
+});
+onValue(ref(db, "robot/status/distance"), s => {
+  const v = s.val();
+  $("jarak").textContent = v === null ? "--" : (v >= 400 ? ">400" : v);
+});
+onValue(ref(db, ".info/connected"), s => {
+  const on = s.val() === true;
+  $("dot").classList.toggle("on", on);
+  $("koneksi").textContent = on ? "Terhubung" : "Terputus";
+});
+
+// ---------- Firebase Auth ----------
+signInAnonymously(auth)
+  .then(() => {
+    ready = true;
+    buttons.forEach(b => b.disabled = false);
+    set(ref(db, "robot/control/cmd"), "S");
+  })
+  .catch(err => {
+    console.error(err);
+    $("koneksi").textContent = "Gagal";
+  });
+</script>
+</body>
+</html>
